@@ -12,7 +12,7 @@ const config = {
     botSpeed: 2,
     bulletSpeed: 7,
     meleeRange: 50,
-    shotgunRange: 400,
+    shotgunRange: 300,
     pistolRange: 500,
     shotgunSpread: Math.PI / 6,
     playerSize: 30,
@@ -39,9 +39,10 @@ const brawlerSelection = document.getElementById('brawler-selection');
 const gameOverScreen = document.getElementById('game-over');
 const resultTitle = document.getElementById('result-title');
 const resultText = document.getElementById('result-text');
-const joystick = document.getElementById('joystick');
-const joystickInner = document.getElementById('joystick-inner');
-const shootBtn = document.getElementById('shoot-btn');
+const moveJoystick = document.getElementById('joystick');
+const moveJoystickInner = document.getElementById('joystick-inner');
+const attackJoystick = document.getElementById('attack-joystick');
+const attackJoystickInner = document.getElementById('attack-joystick-inner');
 
 // Состояние игры
 let gameRunning = false;
@@ -57,36 +58,28 @@ let spawnProtectionEndTime = 0;
 let playerPlace = 0;
 let isMobile = false;
 let camera = { x: 0, y: 0 };
-let showTrajectory = false;
-let trajectoryAngle = 0;
+let attackAngle = 0;
+let isAttacking = false;
 
 // Управление
 const keys = {
-    ArrowUp: false,
-    ArrowDown: false,
-    ArrowLeft: false,
-    ArrowRight: false,
-    w: false,
-    a: false,
-    s: false,
-    d: false
+    w: false, a: false, s: false, d: false
 };
 
-const touch = {
+const moveTouch = {
     active: false,
-    startX: 0,
-    startY: 0,
-    moveX: 0,
-    moveY: 0,
-    shooting: false,
-    aimX: 0,
-    aimY: 0
+    startX: 0, startY: 0,
+    moveX: 0, moveY: 0
+};
+
+const attackTouch = {
+    active: false,
+    startX: 0, startY: 0,
+    moveX: 0, moveY: 0
 };
 
 const mouse = {
-    x: 0,
-    y: 0,
-    click: false
+    x: 0, y: 0, click: false
 };
 
 // Инициализация игры
@@ -97,8 +90,8 @@ function initGame() {
     isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
     if (isMobile) {
-        joystick.style.display = 'block';
-        shootBtn.style.display = 'block';
+        moveJoystick.style.display = 'block';
+        attackJoystick.style.display = 'block';
         setupTouchControls();
     } else {
         setupKeyboardControls();
@@ -270,36 +263,50 @@ function updatePlayer(deltaTime) {
     let dx = 0, dy = 0;
     
     if (isMobile) {
-        if (touch.active) {
-            const dist = Math.sqrt(Math.pow(touch.moveX - touch.startX, 2) + Math.pow(touch.moveY - touch.startY, 2));
+        // Управление движением
+        if (moveTouch.active) {
+            const dist = Math.sqrt(Math.pow(moveTouch.moveX - moveTouch.startX, 2) + 
+                                 Math.pow(moveTouch.moveY - moveTouch.startY, 2));
             const maxDist = 40;
             
             if (dist > 5) {
-                const angle = Math.atan2(touch.moveY - touch.startY, touch.moveX - touch.startX);
+                const angle = Math.atan2(moveTouch.moveY - moveTouch.startY, 
+                                        moveTouch.moveX - moveTouch.startX);
                 const moveDist = Math.min(dist, maxDist);
                 
                 dx = Math.cos(angle) * moveDist / maxDist;
                 dy = Math.sin(angle) * moveDist / maxDist;
-                joystickInner.style.transform = `translate(${dx * 30}px, ${dy * 30}px)`;
+                moveJoystickInner.style.transform = `translate(${dx * 30}px, ${dy * 30}px)`;
             }
         }
         
-        // На мобильных - стрельба в направлении кнопки стрельбы
-        if (touch.shooting) {
-            const centerX = config.viewportWidth / 2;
-            const centerY = config.viewportHeight / 2;
-            trajectoryAngle = Math.atan2(touch.aimY - centerY, touch.aimX - centerX);
-            showTrajectory = true;
+        // Управление атакой
+        if (attackTouch.active) {
+            isAttacking = true;
+            attackAngle = Math.atan2(attackTouch.moveY - attackTouch.startY, 
+                                   attackTouch.moveX - attackTouch.startX);
             
+            // Обновление позиции джойстика атаки
+            const dist = Math.sqrt(Math.pow(attackTouch.moveX - attackTouch.startX, 2) + 
+                                 Math.pow(attackTouch.moveY - attackTouch.startY, 2));
+            const maxDist = 50;
+            const moveDist = Math.min(dist, maxDist);
+            
+            attackJoystickInner.style.transform = `translate(
+                ${(attackTouch.moveX - attackTouch.startX) / maxDist * 30}px, 
+                ${(attackTouch.moveY - attackTouch.startY) / maxDist * 30}px
+            )`;
+            
+            // Автоматическая стрельба при наведении
             if (Date.now() - player.lastShot > player.shotDelay) {
                 player.lastShot = Date.now();
-                shoot(player, trajectoryAngle);
+                shoot(player, attackAngle);
             }
         } else {
-            showTrajectory = false;
+            isAttacking = false;
         }
     } else {
-        // На ПК - WASD для движения
+        // Управление с клавиатуры
         if (keys.w) dy -= 1;
         if (keys.s) dy += 1;
         if (keys.a) dx -= 1;
@@ -311,18 +318,19 @@ function updatePlayer(deltaTime) {
             dy *= invSqrt;
         }
         
-        // На ПК - стрельба в направлении курсора
+        // Стрельба по клику мыши
         if (mouse.click) {
+            isAttacking = true;
+            attackAngle = Math.atan2(mouse.y - (player.y - camera.y), 
+                                   mouse.x - (player.x - camera.x));
+            
             if (Date.now() - player.lastShot > player.shotDelay) {
                 player.lastShot = Date.now();
-                const angle = Math.atan2(mouse.y - (player.y - camera.y), mouse.x - (player.x - camera.x));
-                shoot(player, angle);
+                shoot(player, attackAngle);
             }
+        } else {
+            isAttacking = false;
         }
-        
-        // Показывать траекторию при наведении
-        showTrajectory = true;
-        trajectoryAngle = Math.atan2(mouse.y - (player.y - camera.y), mouse.x - (player.x - camera.x));
     }
     
     player.x += dx * player.speed;
@@ -333,6 +341,7 @@ function updatePlayer(deltaTime) {
 
 function shoot(shooter, angle) {
     if (shooter.brawlerType === 3) {
+        // Ближний бой
         const targets = [...bots].filter(bot => !bot.isDead);
         targets.forEach(target => {
             const dist = Math.sqrt((target.x - shooter.x)**2 + (target.y - shooter.y)**2);
@@ -349,12 +358,15 @@ function shoot(shooter, angle) {
             }
         });
     } else {
+        // Дальний бой
         if (shooter.brawlerType === 1) {
+            // Дробовик - 3 пули с разбросом
             for (let i = -1; i <= 1; i++) {
                 const bulletAngle = angle + i * config.shotgunSpread;
                 createBullet(shooter, bulletAngle);
             }
         } else {
+            // Пистолет - 1 пуля
             createBullet(shooter, angle);
         }
     }
@@ -509,30 +521,58 @@ function render() {
     drawBackground();
     
     // Отрисовка траектории атаки
-    if (showTrajectory && !player.isDead && player.brawlerType !== 3) {
+    if (isAttacking && !player.isDead) {
         ctx.strokeStyle = config.colors.trajectory;
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(player.x, player.y);
         
-        const endX = player.x + Math.cos(trajectoryAngle) * player.range;
-        const endY = player.y + Math.sin(trajectoryAngle) * player.range;
-        
-        ctx.lineTo(endX, endY);
-        ctx.stroke();
-        
-        if (player.brawlerType === 1) {
-            // Для дробовика показываем разброс
-            for (let i = -1; i <= 1; i++) {
-                if (i === 0) continue;
+        switch(player.brawlerType) {
+            case 1: // Дробовик
+                for (let i = -1; i <= 1; i++) {
+                    const spreadAngle = attackAngle + i * config.shotgunSpread;
+                    ctx.beginPath();
+                    ctx.moveTo(player.x, player.y);
+                    const endX = player.x + Math.cos(spreadAngle) * config.shotgunRange;
+                    const endY = player.y + Math.sin(spreadAngle) * config.shotgunRange;
+                    ctx.lineTo(endX, endY);
+                    ctx.stroke();
+                    
+                    // Конец траектории
+                    ctx.beginPath();
+                    ctx.arc(endX, endY, 5, 0, Math.PI * 2);
+                    ctx.fillStyle = config.colors.trajectory;
+                    ctx.fill();
+                }
+                break;
+                
+            case 2: // Пистолет
                 ctx.beginPath();
                 ctx.moveTo(player.x, player.y);
-                const spreadAngle = trajectoryAngle + i * config.shotgunSpread;
-                const spreadEndX = player.x + Math.cos(spreadAngle) * player.range;
-                const spreadEndY = player.y + Math.sin(spreadAngle) * player.range;
-                ctx.lineTo(spreadEndX, spreadEndY);
+                const endX = player.x + Math.cos(attackAngle) * config.pistolRange;
+                const endY = player.y + Math.sin(attackAngle) * config.pistolRange;
+                ctx.lineTo(endX, endY);
                 ctx.stroke();
-            }
+                
+                // Конец траектории
+                ctx.beginPath();
+                ctx.arc(endX, endY, 5, 0, Math.PI * 2);
+                ctx.fillStyle = config.colors.trajectory;
+                ctx.fill();
+                break;
+                
+            case 3: // Ближний бой
+                ctx.beginPath();
+                ctx.arc(player.x, player.y, config.meleeRange, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Визуализация направления атаки
+                ctx.beginPath();
+                ctx.moveTo(player.x, player.y);
+                ctx.lineTo(
+                    player.x + Math.cos(attackAngle) * config.meleeRange,
+                    player.y + Math.sin(attackAngle) * config.meleeRange
+                );
+                ctx.stroke();
+                break;
         }
     }
     
@@ -568,15 +608,6 @@ function render() {
         }
         
         drawCharacter(player);
-        
-        if (player.brawlerType !== 3 && !isMobile) {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(player.x, player.y);
-            ctx.lineTo(mouse.x + camera.x, mouse.y + camera.y);
-            ctx.stroke();
-        }
     }
     
     ctx.restore();
@@ -689,43 +720,53 @@ function setupKeyboardControls() {
 }
 
 function setupTouchControls() {
-    joystick.addEventListener('touchstart', handleTouchStart);
-    joystick.addEventListener('touchmove', handleTouchMove);
-    joystick.addEventListener('touchend', handleTouchEnd);
-    
-    shootBtn.addEventListener('touchstart', (e) => {
-        const rect = shootBtn.getBoundingClientRect();
-        touch.aimX = rect.left + rect.width / 2;
-        touch.aimY = rect.top + rect.height / 2;
-        touch.shooting = true;
-    });
-    
-    shootBtn.addEventListener('touchend', () => {
-        touch.shooting = false;
-    });
-}
-
-function handleTouchStart(e) {
-    const rect = joystick.getBoundingClientRect();
-    touch.startX = rect.left + rect.width / 2;
-    touch.startY = rect.top + rect.height / 2;
-    touch.moveX = e.touches[0].clientX;
-    touch.moveY = e.touches[0].clientY;
-    touch.active = true;
-    e.preventDefault();
-}
-
-function handleTouchMove(e) {
-    if (touch.active) {
-        touch.moveX = e.touches[0].clientX;
-        touch.moveY = e.touches[0].clientY;
+    // Джойстик движения
+    moveJoystick.addEventListener('touchstart', (e) => {
+        const rect = moveJoystick.getBoundingClientRect();
+        moveTouch.startX = rect.left + rect.width / 2;
+        moveTouch.startY = rect.top + rect.height / 2;
+        moveTouch.moveX = e.touches[0].clientX;
+        moveTouch.moveY = e.touches[0].clientY;
+        moveTouch.active = true;
         e.preventDefault();
-    }
-}
-
-function handleTouchEnd() {
-    touch.active = false;
-    joystickInner.style.transform = 'translate(0, 0)';
+    });
+    
+    moveJoystick.addEventListener('touchmove', (e) => {
+        if (moveTouch.active) {
+            moveTouch.moveX = e.touches[0].clientX;
+            moveTouch.moveY = e.touches[0].clientY;
+            e.preventDefault();
+        }
+    });
+    
+    moveJoystick.addEventListener('touchend', () => {
+        moveTouch.active = false;
+        moveJoystickInner.style.transform = 'translate(0, 0)';
+    });
+    
+    // Джойстик атаки
+    attackJoystick.addEventListener('touchstart', (e) => {
+        const rect = attackJoystick.getBoundingClientRect();
+        attackTouch.startX = rect.left + rect.width / 2;
+        attackTouch.startY = rect.top + rect.height / 2;
+        attackTouch.moveX = e.touches[0].clientX;
+        attackTouch.moveY = e.touches[0].clientY;
+        attackTouch.active = true;
+        e.preventDefault();
+    });
+    
+    attackJoystick.addEventListener('touchmove', (e) => {
+        if (attackTouch.active) {
+            attackTouch.moveX = e.touches[0].clientX;
+            attackTouch.moveY = e.touches[0].clientY;
+            e.preventDefault();
+        }
+    });
+    
+    attackJoystick.addEventListener('touchend', () => {
+        attackTouch.active = false;
+        attackJoystickInner.style.transform = 'translate(0, 0)';
+    });
 }
 
 function resizeCanvas() {
