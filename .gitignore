@@ -1,0 +1,20 @@
+# Файлы окружения
+.env
+
+# Файлы Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Базы данных
+*.db
+*.sqlite
+
+# Логи
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
