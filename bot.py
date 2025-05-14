@@ -461,7 +461,7 @@ def main() -> None:
     """Запуск бота"""
     init_db()
 
-    application = Application.builder().token("7916749423:AAHsytwoTZhFcT8vR0Uw6_X0Cw41SMOew3w").build()
+    application = Application.builder().token("TOKEN_BOT").build()
 
     # Обработчики
     application.add_handler(CommandHandler("start", start))
